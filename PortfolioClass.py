@@ -311,3 +311,85 @@ class portfolio:
         plt.legend()
         plt.grid()
         plt.show()
+
+    def fetch_risk_free_rate(start_date, end_date, symbol="^IRX"):
+        """
+        Fetches the relevant risk-free rate for a given time period from Yahoo Finance.
+
+        Parameters:
+            start_date (str): Start date of the period (in 'YYYY-MM-DD' format).
+            end_date (str): End date of the period (in 'YYYY-MM-DD' format).
+            symbol (str): Yahoo Finance symbol for Treasury yield (^IRX for 3-month T-bill, ^TNX for 10-year bond).
+
+        Returns:
+            float: The average risk-free rate over the given period as a decimal.
+        """
+        # Fetch risk-free rate data from Yahoo Finance
+        risk_free_data = yf.download(symbol, start=start_date, end=end_date)
+        if risk_free_data.empty:
+            raise ValueError(f"No data fetched for symbol: {symbol} between {start_date} and {end_date}")
+
+        # Use the 'Close' column for the risk-free rate and convert percentage to decimal
+        risk_free_data = risk_free_data["Close"] / 100  # Convert from percentage to decimal
+
+        # Calculate the average risk-free rate over the period
+        average_risk_free_rate = risk_free_data.mean()
+
+        return average_risk_free_rate
+    
+    def sharpe_ratio_optimization(self, rfr):
+        self.udpateAll()
+        ones = np.ones(len(self.u))
+        eReturns = self.u - rfr
+        inv_Sigma = np.linalg.inv(self.Sigma)
+
+        w_opt = inv_Sigma @ eReturns / (ones.T @ inv_Sigma @ eReturns)
+        expected_return = np.dot(w_opt, self.u)
+        risk = np.sqrt(w_opt.T @ self.Sigma @ w_opt)
+        sharpe_ratio = (expected_return - rfr) / risk
+
+        return {
+            "weights": w_opt,
+            "expected_return": expected_return,
+            "risk": risk,
+            "sharpe_ratio": sharpe_ratio
+        }
+    
+    def plot_efficient_frontier_with_cml(frontier_df, m, b, tangent_risk, tangent_return):
+        """
+        Plots the Efficient Frontier and the Capital Market Line (CML) and marks the tangent portfolio.
+
+        Parameters:
+            frontier_df (pandas.DataFrame): DataFrame with "Portfolio Risk (Standard Deviation)" and "Portfolio Return" columns.
+            m (float): Slope of the CML.
+            b (float): Intercept of the CML.
+            tangent_risk (float): Risk (standard deviation) of the tangent portfolio.
+            tangent_return (float): Expected return of the tangent portfolio.
+
+        Returns:
+            None
+        """
+        plt.figure(figsize=(10, 6))
+
+        # Plot the Efficient Frontier
+        plt.plot(frontier_df["Portfolio Risk (Standard Deviation)"], 
+                frontier_df["Portfolio Return"], label="Efficient Frontier", marker="o")
+
+        # Generate the CML line
+        cml_risks = frontier_df["Portfolio Risk (Standard Deviation)"]
+        cml_returns = m * cml_risks + b
+        plt.plot(cml_risks, cml_returns, label="Capital Market Line (CML)", linestyle="--", color="red")
+
+        # Mark the tangent portfolio
+        plt.scatter(tangent_risk, tangent_return, color="blue", label="Tangency Portfolio", zorder=5)
+        plt.annotate("Tangency Portfolio", 
+                    (tangent_risk, tangent_return), 
+                    textcoords="offset points", xytext=(10, -10), ha='center', color="blue")
+
+        # Add labels and legend
+        plt.xlabel("Portfolio Risk (Standard Deviation)")
+        plt.ylabel("Portfolio Return")
+        plt.title("Efficient Frontier and Capital Market Line")
+        plt.legend()
+        plt.grid()
+        plt.show()
