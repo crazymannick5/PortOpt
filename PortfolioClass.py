@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import yfinance as yf
+import matplotlib.pyplot as plt
 
 class portfolio:
     INTERVAL_TO_DAYS = {"1m": 1/1440, "1d": 1, "1wk": 7, "1mo": 30, "3mo": 90}
@@ -31,6 +32,7 @@ class portfolio:
         self.eXretInd = "historical"
         self.halfLife = 10
         self.INTERVAL_TO_DAYS = {"1m": 1/1440, "1d": 1, "1wk": 7, "1mo": 30, "3mo": 90}
+        self.targetRmax = 0
 
 
 
@@ -180,7 +182,8 @@ class portfolio:
         self.returns = (self.dataMatrix[1:,:] - self.dataMatrix[:-1,:]) / self.dataMatrix[:-1,:]        
     def update_logReturns(self):
         self.returns = np.log(self.dataMatrix[1:, :] / self.dataMatrix[:-1, :])
-
+    def update_max_feasible_target(self):
+        self.targetRmax = np.max(self.u)
     def update_Returns(self):
         if (self.retInd == "simple"):
             self.update_simpReturns()
@@ -202,6 +205,7 @@ class portfolio:
             self.exReturnsGO()
         elif self.eXretInd == "exponential":
             self.exReturnsEX()
+        self.update_max_feasible_target()
     
     def set_retInd(self, method):
         """
@@ -228,4 +232,82 @@ class portfolio:
     def update_Sigma(self):
         centered_returns = self.returns - np.mean(self.returns, axis=0)
         self.Sigma = np.dot(centered_returns.T, centered_returns) / (self.returns.shape[0] - 1)
+    def udpateAll(self):
+        self.update_raw_data()
+        self.update_data()
+        self.update_dataMatrix()
+        self.update_Returns()
+        self.update_eXReturns()
+        self.update_Sigma()
+    def calcOptW(self, targetR):
+        self.UpdateAll()
+        ones = np.ones(len(self.u))
+        inv_Sigma = np.linalg.inv(self.Sigma)
+        A = self.u.T @ inv_Sigma @ self.u
+        B = self.u.T @ inv_Sigma @ ones
+        C = ones.T @ inv_Sigma @ ones
+
+        Delta = A * C - B**2
+
+        w = inv_Sigma @ (
+        ((C * targetR - B) / Delta) * self.u +
+        ((A - B * targetR) / Delta) * ones
+        )
+
+        return(w)
     
+    def calculate_expected_return(self, w):
+        self.UpdateAll()
+        return np.dot(w, self.u)
+    def calculate_portfolio_risk(self, w):
+        return np.sqrt(w.T @ self.Sigma @ w)
+
+    def efficient_frontier_points(self, num_points=50):
+        """
+        Calculates the Efficient Frontier points for expected return and risk.
+
+        Parameters:
+            num_points (int): Number of target returns to calculate along the frontier.
+
+        Returns:
+            pandas.DataFrame: A DataFrame containing portfolio risks and returns with labeled columns.
+        """
+        R_min = np.min(self.mu)
+        R_max = np.max(self.mu)
+        target_returns = np.linspace(R_min, R_max, num_points)
+
+        risks = []
+        returns = []
+
+        for R_star in target_returns:
+            w = self.calcOptW(R_star)
+            portfolio_risk = self.calculate_portfolio_risk(w)
+            risks.append(portfolio_risk)
+            returns.append(R_star)
+
+        frontier_df = pd.DataFrame({
+            "Portfolio Risk (Standard Deviation)": risks,
+            "Portfolio Return": returns
+        })
+
+        return frontier_df
+
+    def plot_efficient_frontier(frontier_df):
+        """
+        Plots the Efficient Frontier from a DataFrame containing risk and return.
+
+        Parameters:
+            frontier_df (pandas.DataFrame): DataFrame with "Portfolio Risk (Standard Deviation)" and "Portfolio Return" columns.
+
+        Returns:
+            None
+        """
+        plt.figure(figsize=(10, 6))
+        plt.plot(frontier_df["Portfolio Risk (Standard Deviation)"], 
+                frontier_df["Portfolio Return"], label="Efficient Frontier", marker="o")
+        plt.xlabel("Portfolio Risk (Standard Deviation)")
+        plt.ylabel("Portfolio Return")
+        plt.title("Efficient Frontier")
+        plt.legend()
+        plt.grid()
+        plt.show()
