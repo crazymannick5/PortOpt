@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 import matplotlib.pyplot as plt
+import datetime
 
 class portfolio:
     INTERVAL_TO_DAYS = {"1m": 1/1440, "1d": 1, "1wk": 7, "1mo": 30, "3mo": 90}
@@ -16,7 +17,7 @@ class portfolio:
     R"""
 
 
-    def __init__(self, name_input, tickers="AAPL", interval="1d"):
+    def __init__(self, startdate, enddate, name_input,  tickers="AAPL", interval="1d"):
         self.name = name_input
         self.tickers = tickers
         self.set_interval(interval)
@@ -33,6 +34,8 @@ class portfolio:
         self.halfLife = 10
         self.INTERVAL_TO_DAYS = {"1m": 1/1440, "1d": 1, "1wk": 7, "1mo": 30, "3mo": 90}
         self.targetRmax = 0
+        self.start_date = startdate
+        self.end_date = enddate
 
 
 
@@ -232,8 +235,8 @@ class portfolio:
     def update_Sigma(self):
         centered_returns = self.returns - np.mean(self.returns, axis=0)
         self.Sigma = np.dot(centered_returns.T, centered_returns) / (self.returns.shape[0] - 1)
-    def udpateAll(self):
-        self.update_raw_data()
+    def UpdateAll(self):
+        self.update_raw_data(self.start_date, self.end_date)
         self.update_data()
         self.update_dataMatrix()
         self.update_Returns()
@@ -272,8 +275,8 @@ class portfolio:
         Returns:
             pandas.DataFrame: A DataFrame containing portfolio risks and returns with labeled columns.
         """
-        R_min = np.min(self.mu)
-        R_max = np.max(self.mu)
+        R_min = np.min(self.u)
+        R_max = np.max(self.u)
         target_returns = np.linspace(R_min, R_max, num_points)
 
         risks = []
@@ -284,7 +287,9 @@ class portfolio:
             portfolio_risk = self.calculate_portfolio_risk(w)
             risks.append(portfolio_risk)
             returns.append(R_star)
+            
 
+        #returns = returns[:-1]
         frontier_df = pd.DataFrame({
             "Portfolio Risk (Standard Deviation)": risks,
             "Portfolio Return": returns
@@ -292,7 +297,7 @@ class portfolio:
 
         return frontier_df
 
-    def plot_efficient_frontier(frontier_df):
+    def plot_efficient_frontier(self, frontier_df):
         """
         Plots the Efficient Frontier from a DataFrame containing risk and return.
 
@@ -312,7 +317,7 @@ class portfolio:
         plt.grid()
         plt.show()
 
-    def fetch_risk_free_rate(start_date, end_date, symbol="^IRX"):
+    def fetch_risk_free_rate(self, start_date, end_date, symbol="^IRX"):
         """
         Fetches the relevant risk-free rate for a given time period from Yahoo Finance.
 
@@ -338,9 +343,9 @@ class portfolio:
         return average_risk_free_rate
     
     def sharpe_ratio_optimization(self, rfr):
-        self.udpateAll()
+        self.UpdateAll()
         ones = np.ones(len(self.u))
-        eReturns = self.u - rfr
+        eReturns = self.u - np.full_like(self.u, rfr)#self.u - rfr
         inv_Sigma = np.linalg.inv(self.Sigma)
 
         w_opt = inv_Sigma @ eReturns / (ones.T @ inv_Sigma @ eReturns)
@@ -354,8 +359,27 @@ class portfolio:
             "risk": risk,
             "sharpe_ratio": sharpe_ratio
         }
-    
-    def plot_efficient_frontier_with_cml(frontier_df, m, b, tangent_risk, tangent_return):
+    def calculate_cml_params(self, sharpe_ratio, portfolio_risk, portfolio_return):
+        """
+        Calculates the slope and intercept of the Capital Market Line (CML) given portfolio metrics.
+
+        Parameters:
+            sharpe_ratio (float): The Sharpe ratio of the portfolio.
+            portfolio_risk (float): The risk (standard deviation) of the portfolio.
+            portfolio_return (float): The expected return of the portfolio.
+
+        Returns:
+            dict: A dictionary containing the slope (m) and intercept (b) of the CML.
+        """
+        # Intercept (risk-free rate)
+        risk_free_rate = portfolio_return - sharpe_ratio * portfolio_risk
+
+        # Slope is the Sharpe ratio
+        slope = sharpe_ratio
+
+        return slope, risk_free_rate
+
+    def plot_efficient_frontier_with_cml(self, frontier_df, m, b, tangent_risk, tangent_return):
         """
         Plots the Efficient Frontier and the Capital Market Line (CML) and marks the tangent portfolio.
 
@@ -376,8 +400,8 @@ class portfolio:
                 frontier_df["Portfolio Return"], label="Efficient Frontier", marker="o")
 
         # Generate the CML line
-        cml_risks = frontier_df["Portfolio Risk (Standard Deviation)"]
-        cml_returns = m * cml_risks + b
+        cml_risks = frontier_df["Portfolio Risk (Standard Deviation)"].values
+        cml_returns = np.array([m * risk + b for risk in cml_risks])
         plt.plot(cml_risks, cml_returns, label="Capital Market Line (CML)", linestyle="--", color="red")
 
         # Mark the tangent portfolio
@@ -392,4 +416,44 @@ class portfolio:
         plt.title("Efficient Frontier and Capital Market Line")
         plt.legend()
         plt.grid()
+        
+
+        min_return = float(frontier_df["Portfolio Return"].min())
+        max_return = max(cml_returns)
+        plt.ylim(min_return - 0.0005, max_return + 0.0005)  # Adjust as needed
+        plt.xlim(0, max(cml_risks) * 1.1)
         plt.show()
+
+
+# Define the date range
+start_date = "2023-01-01"
+end_date = "2023-12-31"
+
+my_portfolio = portfolio(start_date, end_date, name_input="Test Portfolio", tickers=["AAPL", "MSFT", "GOOGL"], interval="1d")
+
+
+
+# Fetch and prepare the data
+my_portfolio.update_raw_data(start_date=start_date, end_date=end_date)
+my_portfolio.update_data()
+my_portfolio.update_Returns()
+my_portfolio.update_eXReturns()
+my_portfolio.update_Sigma()
+
+# Fetch the risk-free rate
+risk_free_rate = my_portfolio.fetch_risk_free_rate(start_date=start_date, end_date=end_date)
+
+# Perform Sharpe Ratio optimization to find the tangent portfolio
+tangent_portfolio = my_portfolio.sharpe_ratio_optimization(rfr=risk_free_rate)
+tangent_risk = tangent_portfolio["risk"]
+tangent_return = tangent_portfolio["expected_return"]
+sharpe_ratio = tangent_portfolio["sharpe_ratio"]
+
+# Calculate the Capital Market Line (CML) parameters
+m, b = my_portfolio.calculate_cml_params(sharpe_ratio, tangent_risk, tangent_return)
+
+# Generate the Efficient Frontier points
+frontier_df = my_portfolio.efficient_frontier_points(num_points=50)
+
+# Plot the Efficient Frontier, CML, and Tangency Portfolio
+my_portfolio.plot_efficient_frontier_with_cml(frontier_df, m, b, tangent_risk, tangent_return)
