@@ -3,6 +3,7 @@ import pandas as pd
 import yfinance as yf
 import matplotlib.pyplot as plt
 import datetime
+import sys
 
 class portfolio:
     INTERVAL_TO_DAYS = {"1m": 1/1440, "1d": 1, "1wk": 7, "1mo": 30, "3mo": 90}
@@ -418,18 +419,23 @@ class portfolio:
         plt.grid()
         
 
-        min_return = float(frontier_df["Portfolio Return"].min())
-        max_return = max(cml_returns)
-        plt.ylim(min_return - 0.0005, max_return + 0.0005)  # Adjust as needed
-        plt.xlim(0, max(cml_risks) * 1.1)
+        min_risk = 0
+        max_risk = frontier_df["Portfolio Risk (Standard Deviation)"].max()
+        plt.xlim(min_risk, max_risk * 1.1)  # Extend by 10%
+
+        # Set Y-axis limits
+        min_return = min(float(frontier_df["Portfolio Return"].min()), float(b))
+        max_return = max(frontier_df["Portfolio Return"].max(), max(cml_returns))
+        padding = (max_return - min_return) * 0.5  # Add 10% padding
+        plt.ylim(min_return - padding, max_return + padding)
         plt.show()
 
-
+"""
 # Define the date range
 start_date = "2023-01-01"
 end_date = "2023-12-31"
 
-my_portfolio = portfolio(start_date, end_date, name_input="Test Portfolio", tickers=["AAPL", "MSFT", "GOOGL"], interval="1d")
+my_portfolio = portfolio(start_date, end_date, name_input="Test Portfolio", tickers=["AAPL", "MSFT", "GOOGL","TSLA","NVDA","AMZN","WMT","JPM"], interval="1d")
 
 
 
@@ -456,4 +462,154 @@ m, b = my_portfolio.calculate_cml_params(sharpe_ratio, tangent_risk, tangent_ret
 frontier_df = my_portfolio.efficient_frontier_points(num_points=50)
 
 # Plot the Efficient Frontier, CML, and Tangency Portfolio
-my_portfolio.plot_efficient_frontier_with_cml(frontier_df, m, b, tangent_risk, tangent_return)
+my_portfolio.plot_efficient_frontier_with_cml(frontier_df, m, b, tangent_risk, tangent_return)"""
+
+
+def portfolio_cli():
+    """
+    Command-line interface for managing and interacting with portfolios.
+    """
+    portfolios = {}
+
+    def display_menu():
+        print("\nPortfolio Optimization CLI")
+        print("1. Create a new portfolio")
+        print("2. View existing portfolios")
+        print("3. Switch to a portfolio")
+        print("4. Exit")
+        print("-" * 40)
+
+    def portfolio_menu(portfolio):
+        while True:
+            print(f"\nManaging Portfolio: {portfolio.name}")
+            print("1. Add tickers")
+            print("2. Remove a ticker")
+            print("3. View tickers")
+            print("4. Change return calculation method (simple/log)")
+            print("5. Change expected return method (historical/geometric/exponential)")
+            print("6. Update data and perform analysis")
+            print("7. Plot Efficient Frontier with CML")
+            print("8. Print tangent portfolio weights")
+            print("9. Print portfolio weights for a target return")
+            print("10. Back to main menu")
+            print("-" * 40)
+
+            choice = input("Enter your choice: ").strip()
+
+            if choice == "1":
+                tickers = input("Enter tickers to add (comma-separated): ").strip().split(",")
+                portfolio.add_tickers([ticker.strip().upper() for ticker in tickers])
+            elif choice == "2":
+                portfolio.show_tickers()
+                try:
+                    index = int(input("Enter the index of the ticker to remove: ").strip())
+                    portfolio.remove_ticker_by_index(index)
+                except ValueError:
+                    print("Invalid index.")
+            elif choice == "3":
+                portfolio.show_tickers()
+            elif choice == "4":
+                method = input("Enter return method (simple/log): ").strip().lower()
+                portfolio.set_retInd(method)
+            elif choice == "5":
+                method = input("Enter expected return method (historical/geometric/exponential): ").strip().lower()
+                portfolio.set_eXretInd(method)
+            elif choice == "6":
+                try:
+                    portfolio.UpdateAll()
+                    print("Data updated and portfolio analysis performed.")
+                except Exception as e:
+                    print(f"Error during update: {e}")
+            elif choice == "7":
+                try:
+                    # Perform analysis
+                    portfolio.UpdateAll()
+                    risk_free_rate = portfolio.fetch_risk_free_rate(portfolio.start_date, portfolio.end_date)
+                    tangent_portfolio = portfolio.sharpe_ratio_optimization(rfr=risk_free_rate)
+                    tangent_risk = tangent_portfolio["risk"]
+                    tangent_return = tangent_portfolio["expected_return"]
+                    sharpe_ratio = tangent_portfolio["sharpe_ratio"]
+                    m, b = portfolio.calculate_cml_params(sharpe_ratio, tangent_risk, tangent_return)
+                    frontier_df = portfolio.efficient_frontier_points(num_points=50)
+
+                    # Plot
+                    portfolio.plot_efficient_frontier_with_cml(frontier_df, m, b, tangent_risk, tangent_return)
+                except Exception as e:
+                    print(f"Error during plotting: {e}")
+            elif choice == "8":
+                try:
+                    risk_free_rate = portfolio.fetch_risk_free_rate(portfolio.start_date, portfolio.end_date)
+                    tangent_portfolio = portfolio.sharpe_ratio_optimization(rfr=risk_free_rate)
+                    print("Tangent Portfolio Weights:")
+                    for ticker, weight in zip(portfolio.tickers, tangent_portfolio["weights"]):
+                        print(f"{ticker}: {weight:.4f}")
+                except Exception as e:
+                    print(f"Error fetching tangent portfolio weights: {e}")
+            elif choice == "9":
+                try:
+                    target_return = float(input("Enter the target return: ").strip())
+                    weights = portfolio.calcOptW(target_return)
+                    print("Portfolio Weights for Target Return:")
+                    for ticker, weight in zip(portfolio.tickers, weights):
+                        print(f"{ticker}: {weight:.4f}")
+                except ValueError:
+                    print("Invalid target return.")
+                except Exception as e:
+                    print(f"Error fetching portfolio weights: {e}")
+            elif choice == "10":
+                break
+            else:
+                print("Invalid choice. Please try again.")
+
+    while True:
+        display_menu()
+        choice = input("Enter your choice: ").strip()
+
+        if choice == "1":
+            # Create a new portfolio
+            name = input("Enter portfolio name: ").strip()
+            start_date = input("Enter start date (YYYY-MM-DD): ").strip()
+            end_date = input("Enter end date (YYYY-MM-DD): ").strip()
+            tickers = input("Enter tickers (comma-separated): ").strip().split(",")
+            interval = input("Enter interval (e.g., 1d, 1wk, 1mo): ").strip()
+            portfolio_instance = portfolio(start_date, end_date, name, [ticker.strip().upper() for ticker in tickers], interval)
+            portfolios[name] = portfolio_instance
+            print(f"Portfolio '{name}' created.")
+
+        elif choice == "2":
+            # View existing portfolios
+            if portfolios:
+                print("\nExisting Portfolios:")
+                for idx, p in enumerate(portfolios.values(), 1):
+                    print(f"{idx}. {p.name} (Tickers: {', '.join(p.tickers)})")
+            else:
+                print("\nNo portfolios available. Create one first.")
+
+        elif choice == "3":
+            # Switch to a portfolio
+            if not portfolios:
+                print("\nNo portfolios available. Create one first.")
+                continue
+
+            print("\nAvailable Portfolios:")
+            portfolio_names = list(portfolios.keys())
+            for idx, name in enumerate(portfolio_names, 1):
+                print(f"{idx}. {name}")
+
+            try:
+                portfolio_idx = int(input("Enter the number of the portfolio to manage: ").strip()) - 1
+                if 0 <= portfolio_idx < len(portfolio_names):
+                    selected_portfolio = portfolios[portfolio_names[portfolio_idx]]
+                    portfolio_menu(selected_portfolio)
+                else:
+                    print("Invalid selection.")
+            except ValueError:
+                print("Invalid input. Please enter a number.")
+
+        elif choice == "4":
+            print("Exiting Portfolio Optimization CLI. Goodbye!")
+            sys.exit(0)
+
+        else:
+            print("Invalid choice. Please try again.")
+portfolio_cli()
